@@ -51,68 +51,17 @@ public class AdtProcessor extends AbstractProcessor {
             baseBuilder.addMethod(MethodSpec.constructorBuilder().addModifiers(Modifier.PRIVATE).build());
             ClassName superclass = ClassName.get(annotation.packageName(), annotation.baseName());
 
-            TypeVariableName a = TypeVariableName.get("A");
-            MethodSpec.Builder foldBuilder = MethodSpec.methodBuilder("fold")
-                    .addModifiers(Modifier.PUBLIC)
-                    .addTypeVariable(a).returns(a);
+            MethodSpec fold = foldSpec(constants, superclass);
 
-            for (VariableElement c : constants) {
-                ClassName nested = superclass.nestedClass(c.toString());
-                NameAndType[] fields = c.getAnnotation(AdtFields.class).value();
-                if (fields.length == 0) {
-                    TypeName typeName = ParameterizedTypeName.get(ClassName.get(Supplier.class), a);
-                    foldBuilder.addParameter(ParameterSpec.builder(typeName, c.toString() + "F").build());
-                }
-                else {
-                    TypeName typeName = ParameterizedTypeName.get(ClassName.get(Function.class), nested, a);
-                    foldBuilder.addParameter(ParameterSpec.builder(typeName, c.toString() + "F").build());
-                }
-            }
-
-            baseBuilder.addMethod(foldBuilder.build().toBuilder().addModifiers(Modifier.ABSTRACT).build());
+            baseBuilder.addMethod(fold.toBuilder().addModifiers(Modifier.ABSTRACT).build());
 
             List<TypeSpec> types = constants.stream().map(c -> {
+                String constant = c.toString();
                 NameAndType[] fields = c.getAnnotation(AdtFields.class).value();
-                String code = fields.length == 0 ? "get()" : "apply(this)";
-                ClassName nested = superclass.nestedClass(c.toString());
-
-                MethodSpec.Builder builder = foldBuilder.build().toBuilder().
-                        addStatement("return $LF.$L", c.toString(), code);
-
-                TypeSpec.Builder adtBuilder = TypeSpec.classBuilder(c.toString()).superclass(superclass);
-
-                MethodSpec.Builder constructor = MethodSpec.constructorBuilder().addModifiers(Modifier.PUBLIC);
-                MethodSpec.Builder factory = MethodSpec.methodBuilder(lowerCaseFirst(c.toString())).returns(nested);
-                StringBuilder factoryCode = new StringBuilder("return new $T(");
-
-                for (int i = 0; i < fields.length; i++) {
-                    NameAndType field = fields[i];
-                    TypeName type = getTypeFrom(field::type);
-                    adtBuilder.addField(type, field.name(), Modifier.PUBLIC, Modifier.FINAL);
-                    constructor.addParameter(type, field.name());
-                    constructor.addStatement("this.$L = $L", field.name(), field.name());
-                    factory.addParameter(type, field.name());
-                    factoryCode.append(field.name());
-                    if (i < (fields.length - 1)) {
-                        factoryCode.append(",");
-                    }
-                }
-                FieldSpec event = FieldSpec.builder(
-                        ClassName.get(e),
-                        e.getSimpleName().toString().toLowerCase(),
-                        Modifier.PUBLIC,
-                        Modifier.FINAL
-                ).initializer("$T.$L", ClassName.get(e), c.toString()).build();
-
-                adtBuilder.addField(event);
-                factory.addStatement(factoryCode.append(")").toString(), nested);
-                baseBuilder.addMethod(factory.addModifiers(Modifier.PUBLIC, Modifier.STATIC).build());
-
-                return adtBuilder
-                        .addModifiers(Modifier.PUBLIC, Modifier.STATIC, Modifier.FINAL)
-                        .addMethod(constructor.build())
-                        .addMethod(builder.build())
-                        .build();
+                ClassName nested = superclass.nestedClass(constant);
+                TypeSpec spec = createTypeSpecForADT(superclass, fold, constant, fields);
+                createFactoryForAdtClass(baseBuilder, constant, fields, nested);
+                return spec;
             }).collect(Collectors.toList());
 
             TypeSpec outerTypeSpec = baseBuilder.addTypes(types).build();
@@ -128,6 +77,80 @@ public class AdtProcessor extends AbstractProcessor {
         });
 
         return true;
+    }
+
+    private TypeSpec createTypeSpecForADT(ClassName superclass, MethodSpec fold, String constant, NameAndType[] fields) {
+        String code = fields.length == 0 ? "get()" : "apply(this)";
+
+        MethodSpec.Builder builder = fold.toBuilder().
+                addStatement("return $LF.$L", constant, code);
+
+        TypeSpec.Builder adtBuilder = TypeSpec.classBuilder(constant).superclass(superclass);
+
+        MethodSpec.Builder constructor = MethodSpec.constructorBuilder().addModifiers(Modifier.PUBLIC);
+
+        for (NameAndType field : fields) {
+            TypeName type = getTypeFrom(field::type);
+            adtBuilder.addField(type, field.name(), Modifier.PUBLIC, Modifier.FINAL);
+            constructor.addParameter(type, field.name());
+            constructor.addStatement("this.$L = $L", field.name(), field.name());
+        }
+
+        FieldSpec event = FieldSpec.builder(
+                superclass,
+                superclass.toString().toLowerCase(),
+                Modifier.PUBLIC,
+                Modifier.FINAL
+        ).initializer("$T.$L", superclass, constant).build();
+
+        adtBuilder.addField(event);
+
+        return adtBuilder
+                .addModifiers(Modifier.PUBLIC, Modifier.STATIC, Modifier.FINAL)
+                .addMethod(constructor.build())
+                .addMethod(builder.build())
+                .build();
+    }
+
+    private void createFactoryForAdtClass(TypeSpec.Builder baseBuilder, String constant, NameAndType[] fields, ClassName nested) {
+        StringBuilder factoryCode = new StringBuilder("return new $T(");
+        MethodSpec.Builder factory = MethodSpec.methodBuilder(lowerCaseFirst(constant)).returns(nested);
+
+        for (int i = 0; i < fields.length; i++) {
+            NameAndType field = fields[i];
+            TypeName type = getTypeFrom(field::type);
+            factory.addParameter(type, field.name());
+            factoryCode.append(field.name());
+            if (i < (fields.length - 1)) {
+                factoryCode.append(",");
+            }
+        }
+
+        factory.addStatement(factoryCode.append(")").toString(), nested);
+        baseBuilder.addMethod(factory.addModifiers(Modifier.PUBLIC, Modifier.STATIC).build());
+    }
+
+    private MethodSpec foldSpec(List<VariableElement> constants, ClassName superclass) {
+        TypeVariableName a = TypeVariableName.get("A");
+        MethodSpec.Builder foldBuilder = MethodSpec.methodBuilder("fold")
+                .addModifiers(Modifier.PUBLIC)
+                .addTypeVariable(a).returns(a);
+
+        for (VariableElement c : constants) {
+            String constant = c.toString();
+            ClassName nested = superclass.nestedClass(constant);
+            NameAndType[] fields = c.getAnnotation(AdtFields.class).value();
+            if (fields.length == 0) {
+                TypeName typeName = ParameterizedTypeName.get(ClassName.get(Supplier.class), a);
+                foldBuilder.addParameter(ParameterSpec.builder(typeName, constant + "F").build());
+            }
+            else {
+                TypeName typeName = ParameterizedTypeName.get(ClassName.get(Function.class), nested, a);
+                foldBuilder.addParameter(ParameterSpec.builder(typeName, constant + "F").build());
+            }
+        }
+
+        return foldBuilder.build();
     }
 
     private String lowerCaseFirst(String s) {
