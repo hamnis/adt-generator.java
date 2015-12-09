@@ -89,27 +89,58 @@ public class AdtProcessor extends AbstractProcessor {
 
         MethodSpec.Builder constructor = MethodSpec.constructorBuilder().addModifiers(Modifier.PUBLIC);
 
-        for (NameAndType field : fields) {
+        CodeBlock.Builder equalsBlock = CodeBlock.builder();
+        CodeBlock.Builder hashCodeBlock = CodeBlock.builder();
+        hashCodeBlock.addStatement("$T result = $L", TypeName.INT, 31);
+        equalsBlock.addStatement("if (this == o) return true");
+        equalsBlock.addStatement("if (o == null || getClass() != o.getClass()) return false");
+        equalsBlock.add("\n");
+        ClassName currentType = superclass.nestedClass(constant);
+        if (fields.length == 0) {
+            equalsBlock.add("return true");
+        }
+        else {
+            equalsBlock.addStatement("$T that = ($T) o", currentType, currentType);
+            equalsBlock.add("return ");
+        }
+
+        for (int i = 0; i < fields.length; i++) {
+            NameAndType field = fields[i];
             TypeName type = getTypeFrom(field::type);
             adtBuilder.addField(type, field.name(), Modifier.PUBLIC, Modifier.FINAL);
             constructor.addParameter(type, field.name());
             constructor.addStatement("this.$L = $L", field.name(), field.name());
+            hashCodeBlock.addStatement(
+                    "$L += $T.hashCode(this.$L)",
+                    "result",
+                    ClassName.get(Objects.class),
+                    field.name()
+            );
+            equalsBlock.add("$T.equals(this.$L, that.$L)", ClassName.get(Objects.class), field.name(), field.name());
+            if (i < (fields.length - 1)) {
+                equalsBlock.add(" && ");
+            }
         }
 
-        FieldSpec event = FieldSpec.builder(
-                superclass,
-                superclass.toString().toLowerCase(),
-                Modifier.PUBLIC,
-                Modifier.FINAL
-        ).initializer("$T.$L", superclass, constant).build();
-
-        adtBuilder.addField(event);
+        equalsBlock.add(";\n");
+        hashCodeBlock.addStatement("return result");
 
         return adtBuilder
                 .addModifiers(Modifier.PUBLIC, Modifier.STATIC, Modifier.FINAL)
                 .addMethod(constructor.build())
                 .addMethod(builder.build())
-                .build();
+                .addMethod(MethodSpec.methodBuilder("hashCode")
+                        .addModifiers(Modifier.PUBLIC)
+                        .returns(TypeName.INT)
+                        .addCode(hashCodeBlock.build())
+                        .build()
+                ).addMethod(MethodSpec.methodBuilder("equals")
+                        .addModifiers(Modifier.PUBLIC)
+                        .returns(TypeName.BOOLEAN)
+                        .addParameter(ClassName.OBJECT, "o")
+                        .addCode(equalsBlock.build())
+                        .build()
+                ).build();
     }
 
     private void createFactoryForAdtClass(TypeSpec.Builder baseBuilder, String constant, NameAndType[] fields, ClassName nested) {
@@ -191,5 +222,21 @@ class ProcessorException extends Exception {
 
     public Element getElement() {
         return element;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+
+        ProcessorException that = (ProcessorException) o;
+
+        return !(element != null ? !element.equals(that.element) : that.element != null);
+
+    }
+
+    @Override
+    public int hashCode() {
+        return element != null ? element.hashCode() : 0;
     }
 }
