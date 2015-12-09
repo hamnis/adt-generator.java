@@ -82,7 +82,7 @@ public class AdtProcessor extends AbstractProcessor {
     private TypeSpec createTypeSpecForADT(ClassName superclass, MethodSpec fold, String constant, NameAndType[] fields) {
         String code = fields.length == 0 ? "get()" : "apply(this)";
 
-        MethodSpec.Builder builder = fold.toBuilder().
+        MethodSpec.Builder foldBuilder = fold.toBuilder().
                 addStatement("return $LF.$L", constant, code);
 
         TypeSpec.Builder adtBuilder = TypeSpec.classBuilder(constant).superclass(superclass);
@@ -128,14 +128,19 @@ public class AdtProcessor extends AbstractProcessor {
         return adtBuilder
                 .addModifiers(Modifier.PUBLIC, Modifier.STATIC, Modifier.FINAL)
                 .addMethod(constructor.build())
-                .addMethod(builder.build())
+                .addMethod(foldBuilder
+                        .addAnnotation(Override.class)
+                        .build()
+                )
                 .addMethod(MethodSpec.methodBuilder("hashCode")
                         .addModifiers(Modifier.PUBLIC)
+                        .addAnnotation(Override.class)
                         .returns(TypeName.INT)
                         .addCode(hashCodeBlock.build())
                         .build()
                 ).addMethod(MethodSpec.methodBuilder("equals")
                         .addModifiers(Modifier.PUBLIC)
+                        .addAnnotation(Override.class)
                         .returns(TypeName.BOOLEAN)
                         .addParameter(ClassName.OBJECT, "o")
                         .addCode(equalsBlock.build())
@@ -222,21 +227,5 @@ class ProcessorException extends Exception {
 
     public Element getElement() {
         return element;
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-
-        ProcessorException that = (ProcessorException) o;
-
-        return !(element != null ? !element.equals(that.element) : that.element != null);
-
-    }
-
-    @Override
-    public int hashCode() {
-        return element != null ? element.hashCode() : 0;
     }
 }
