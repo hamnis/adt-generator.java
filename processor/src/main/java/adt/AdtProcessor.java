@@ -15,7 +15,7 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-@SupportedAnnotationTypes({"adt.Adt", "adt.AdtFields", "adt.NameAndType"})
+@SupportedAnnotationTypes({"adt.ADT", "adt.Fields", "adt.Field"})
 public class AdtProcessor extends AbstractProcessor {
     private Filer filer;
     private Messager messager;
@@ -29,7 +29,7 @@ public class AdtProcessor extends AbstractProcessor {
 
     @Override
     public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment roundEnv) {
-        Stream<TypeElement> enums = roundEnv.getElementsAnnotatedWith(Adt.class).
+        Stream<TypeElement> enums = roundEnv.getElementsAnnotatedWith(ADT.class).
                 stream().filter(e -> e.getKind() == ElementKind.ENUM).map(e -> (TypeElement) e);
 
         enums.forEach(e -> {
@@ -40,7 +40,7 @@ public class AdtProcessor extends AbstractProcessor {
                 return;
             }
 
-            Adt annotation = e.getAnnotation(Adt.class);
+            ADT annotation = e.getAnnotation(ADT.class);
 
             List<VariableElement> constants = e.getEnclosedElements().
                     stream().filter(el1 -> el1.getKind() == ElementKind.ENUM_CONSTANT)
@@ -50,6 +50,7 @@ public class AdtProcessor extends AbstractProcessor {
             baseBuilder.addModifiers(Modifier.ABSTRACT, Modifier.PUBLIC);
             baseBuilder.addMethod(MethodSpec.constructorBuilder().addModifiers(Modifier.PRIVATE).build());
             ClassName superclass = ClassName.get(annotation.packageName(), annotation.baseName());
+            ClassName enumType = ClassName.get(e);
 
             MethodSpec fold = foldSpec(constants, superclass);
 
@@ -57,9 +58,9 @@ public class AdtProcessor extends AbstractProcessor {
 
             List<TypeSpec> types = constants.stream().map(c -> {
                 String constant = c.toString();
-                NameAndType[] fields = c.getAnnotation(AdtFields.class).value();
+                Field[] fields = c.getAnnotation(Fields.class).value();
                 ClassName nested = superclass.nestedClass(constant);
-                TypeSpec spec = createTypeSpecForADT(superclass, fold, constant, fields);
+                TypeSpec spec = createTypeSpecForADT(superclass, fold, enumType, constant, fields);
                 createFactoryForAdtClass(baseBuilder, constant, fields, nested);
                 return spec;
             }).collect(Collectors.toList());
@@ -79,7 +80,7 @@ public class AdtProcessor extends AbstractProcessor {
         return true;
     }
 
-    private TypeSpec createTypeSpecForADT(ClassName superclass, MethodSpec fold, String constant, NameAndType[] fields) {
+    private TypeSpec createTypeSpecForADT(ClassName superclass, MethodSpec fold, ClassName enumType, String constant, Field[] fields) {
         String code = fields.length == 0 ? "get()" : "apply(this)";
 
         MethodSpec.Builder foldBuilder = fold.toBuilder().
@@ -89,6 +90,8 @@ public class AdtProcessor extends AbstractProcessor {
 
         MethodSpec.Builder constructor = MethodSpec.constructorBuilder().addModifiers(Modifier.PUBLIC);
 
+        String baseNameEnum = enumType.simpleName().toLowerCase();
+
         CodeBlock.Builder equalsBlock = CodeBlock.builder();
         CodeBlock.Builder hashCodeBlock = CodeBlock.builder();
         hashCodeBlock.addStatement("$T result = $L", TypeName.INT, 31);
@@ -96,16 +99,21 @@ public class AdtProcessor extends AbstractProcessor {
         equalsBlock.addStatement("if (o == null || getClass() != o.getClass()) return false");
         equalsBlock.add("\n");
         ClassName currentType = superclass.nestedClass(constant);
-        if (fields.length == 0) {
-            equalsBlock.add("return true");
-        }
-        else {
-            equalsBlock.addStatement("$T that = ($T) o", currentType, currentType);
-            equalsBlock.add("return ");
-        }
+        equalsBlock.addStatement("$T that = ($T) o", currentType, currentType);
+        equalsBlock.add("return ");
+        equalsBlock.add("this.$L == that.$L", baseNameEnum, baseNameEnum);
+        equalsBlock.add("$L", (fields.length > 0 ? " && " : ""));
+        adtBuilder.addField(enumType, baseNameEnum, Modifier.PUBLIC, Modifier.FINAL);
+        constructor.addStatement("this.$L = $L", baseNameEnum, enumType.nestedClass(constant).toString());
+        hashCodeBlock.addStatement(
+                "$L += $T.hashCode(this.$L)",
+                "result",
+                ClassName.get(Objects.class),
+                baseNameEnum
+        );
 
         for (int i = 0; i < fields.length; i++) {
-            NameAndType field = fields[i];
+            Field field = fields[i];
             TypeName type = getTypeFrom(field::type);
             adtBuilder.addField(type, field.name(), Modifier.PUBLIC, Modifier.FINAL);
             constructor.addParameter(type, field.name());
@@ -148,12 +156,12 @@ public class AdtProcessor extends AbstractProcessor {
                 ).build();
     }
 
-    private void createFactoryForAdtClass(TypeSpec.Builder baseBuilder, String constant, NameAndType[] fields, ClassName nested) {
+    private void createFactoryForAdtClass(TypeSpec.Builder baseBuilder, String constant, Field[] fields, ClassName nested) {
         StringBuilder factoryCode = new StringBuilder("return new $T(");
         MethodSpec.Builder factory = MethodSpec.methodBuilder(lowerCaseFirst(constant)).returns(nested);
 
         for (int i = 0; i < fields.length; i++) {
-            NameAndType field = fields[i];
+            Field field = fields[i];
             TypeName type = getTypeFrom(field::type);
             factory.addParameter(type, field.name());
             factoryCode.append(field.name());
@@ -175,7 +183,7 @@ public class AdtProcessor extends AbstractProcessor {
         for (VariableElement c : constants) {
             String constant = c.toString();
             ClassName nested = superclass.nestedClass(constant);
-            NameAndType[] fields = c.getAnnotation(AdtFields.class).value();
+            Field[] fields = c.getAnnotation(Fields.class).value();
             if (fields.length == 0) {
                 TypeName typeName = ParameterizedTypeName.get(ClassName.get(Supplier.class), a);
                 foldBuilder.addParameter(ParameterSpec.builder(typeName, constant + "F").build());

@@ -1,19 +1,19 @@
 package example;
 
-import adt.Adt;
-import adt.AdtFields;
-import adt.NameAndType;
+import adt.ADT;
+import adt.Field;
+import adt.Fields;
 import org.joda.money.Money;
 
-@Adt(baseName = "Events", packageName = "com.example.event")
+@ADT(baseName = "Events", packageName = "com.example.event")
 public enum Event {
-    @AdtFields({
-            @NameAndType(name = "id", type = Long.class),
-            @NameAndType(name = "amount", type = Money.class)
+    @Fields({
+            @Field(name = "id", type = Long.class),
+            @Field(name = "amount", type = Money.class)
     })
     Offer,
-    @AdtFields()
+    @Fields()
     Accept,
-    @AdtFields()
+    @Fields()
     Reject;
 }
