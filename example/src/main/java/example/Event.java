@@ -1,11 +1,11 @@
 package example;
 
-import adt.ADT;
+import adt.Adt;
 import adt.Field;
 import adt.Fields;
 import org.joda.money.Money;
 
-@ADT(baseName = "Events", packageName = "com.example.event")
+@Adt(baseName = "Events", packageName = "com.example.event")
 public enum Event {
     @Fields({
             @Field(name = "id", type = Long.class),

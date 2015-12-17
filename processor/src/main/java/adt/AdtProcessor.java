@@ -15,7 +15,7 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-@SupportedAnnotationTypes({"adt.ADT", "adt.Fields", "adt.Field"})
+@SupportedAnnotationTypes({"adt.Adt", "adt.Fields", "adt.Field"})
 public class AdtProcessor extends AbstractProcessor {
     private Filer filer;
     private Messager messager;
@@ -29,7 +29,7 @@ public class AdtProcessor extends AbstractProcessor {
 
     @Override
     public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment roundEnv) {
-        Stream<TypeElement> enums = roundEnv.getElementsAnnotatedWith(ADT.class).
+        Stream<TypeElement> enums = roundEnv.getElementsAnnotatedWith(Adt.class).
                 stream().filter(e -> e.getKind() == ElementKind.ENUM).map(e -> (TypeElement) e);
 
         enums.forEach(e -> {
@@ -40,7 +40,7 @@ public class AdtProcessor extends AbstractProcessor {
                 return;
             }
 
-            ADT annotation = e.getAnnotation(ADT.class);
+            Adt annotation = e.getAnnotation(Adt.class);
 
             List<VariableElement> constants = e.getEnclosedElements().
                     stream().filter(el1 -> el1.getKind() == ElementKind.ENUM_CONSTANT)
